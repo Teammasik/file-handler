@@ -36,7 +36,6 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// Читаем первые 512 байт для определения типа
 	fileBytes, err := io.ReadAll(file)
 	if err != nil {
 		http.Error(w, "Failed to read file", http.StatusInternalServerError)
@@ -46,13 +45,16 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	contentType := http.DetectContentType(fileBytes)
 	log.Printf("Detected content type: %s", contentType)
 
-	// Сохраняем файл на диск (для обработки)
-	filename := time.Now().Format("02-01-2006-15-04-05") + "-" + sanitizeFilename(header.Filename)
-	inputPath := filepath.Join(uploadDir, filename)
+	// name generation
+	baseName := time.Now().Format("02-01-2006-15-04-05") + "-" + sanitizeFilename(strings.TrimSuffix(header.Filename, filepath.Ext(header.Filename)))
 
+	inputPath := filepath.Join(uploadDir, baseName+filepath.Ext(header.Filename))
+	outputPath := filepath.Join(outputsDir, baseName+".json")
+
+	// saving primary file
 	err = os.WriteFile(inputPath, fileBytes, 0644)
 	if err != nil {
-		log.Printf("Failed to save file: %v", err)
+		log.Printf("Failed to save input file: %v", err)
 		http.Error(w, "Failed to save file", http.StatusInternalServerError)
 		return
 	}
@@ -66,8 +68,11 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	case contentType == "image/png":
 		jsonData, err = processor.ProcessPNG(inputPath)
 
+	case strings.HasSuffix(strings.ToLower(header.Filename), ".xlsx") || strings.HasSuffix(strings.ToLower(header.Filename), ".xls"):
+		jsonData, err = processor.ProcessExcel(inputPath)
+
 	default:
-		http.Error(w, "Unsupported file type: "+contentType, http.StatusBadRequest)
+		http.Error(w, "Unsupported file type: "+header.Filename+" ("+contentType+")", http.StatusBadRequest)
 		return
 	}
 
@@ -77,14 +82,20 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// saving json file to outputDir
+	err = os.WriteFile(outputPath, jsonData, 0644)
+	if err != nil {
+		log.Printf("Failed to save output JSON: %v", err)
+		// Не прерываем ответ — клиент всё равно получит данные
+	}
+
+	// json sending
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(jsonData)
 }
 
-// sanitizeFilename удаляет опасные символы из имени файла
 func sanitizeFilename(name string) string {
-	// Очень простая санитизация
 	name = strings.ReplaceAll(name, "..", "")
 	name = strings.ReplaceAll(name, "/", "")
 	name = strings.ReplaceAll(name, "\\", "")
