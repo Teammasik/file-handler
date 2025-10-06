@@ -71,6 +71,9 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	case strings.HasSuffix(strings.ToLower(header.Filename), ".xlsx") || strings.HasSuffix(strings.ToLower(header.Filename), ".xls"):
 		jsonData, err = processor.ProcessExcel(inputPath)
 
+	case strings.HasSuffix(strings.ToLower(header.Filename), ".pdf"):
+		jsonData, err = processor.ProcessPDF(inputPath)
+
 	default:
 		http.Error(w, "Unsupported file type: "+header.Filename+" ("+contentType+")", http.StatusBadRequest)
 		return
